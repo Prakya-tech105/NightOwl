@@ -590,7 +590,12 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
               </p>
             </div>
 
-            <DriverArrivalCard driver={activeDriver} onStartTrip={() => setStep('in_trip')} />
+            <DriverArrivalCard
+              driver={activeDriver}
+              fromLocation={fromLocation}
+              toLocation={toLocation}
+              onStartTrip={() => setStep('in_trip')}
+            />
 
             <SafetyAdvisoryCard
               title="Trip advisory"
