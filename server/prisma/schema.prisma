@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  FLEET_OPERATOR
+  DRIVER
+  RIDER
+}
+
+enum DriverStatus {
+  OFFLINE
+  AVAILABLE
+  ASSIGNED
+}
+
+enum DriverApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TripStatus {
+  REQUESTED
+  ASSIGNED
+  ARRIVING
+  IN_TRIP
+  COMPLETED
+  CANCELLED
+}
+
+enum DispatchStatus {
+  OFFERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  ASSIGNED
+  CANCELLED
+}
+
+enum SosStatus {
+  OPEN
+  ACKNOWLEDGED
+  ESCALATED
+  RESOLVED
+}
+
+model Company {
+  id            String     @id @default(cuid())
+  name          String
+  slug          String     @unique
+  pilotCorridor String
+  city          String     @default("Bengaluru")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  users         User[]
+  employees     Employee[]
+  vehicles      Vehicle[]
+  trips         Trip[]
+  drivers       Driver[]
+}
+
+model User {
+  id          String    @id @default(cuid())
+  phone       String    @unique
+  displayName String
+  role        UserRole
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee?
+  driver      Driver?
+  trips       Trip[]    @relation("RiderTrips")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, role])
+}
+
+model Employee {
+  id              String           @id @default(cuid())
+  companyId       String
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode    String
+  department      String?
+  shiftStartAt    String?
+  shiftEndAt      String?
+  active          Boolean          @default(true)
+  trips           Trip[]
+  trustedContacts TrustedContact[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([companyId, employeeCode])
+  @@index([companyId, active])
+}
+
+model Driver {
+  id                  String                  @id @default(cuid())
+  companyId           String
+  company             Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId              String                  @unique
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                String
+  phone               String                  @unique
+  isWoman             Boolean                 @default(false)
+  status              DriverStatus            @default(OFFLINE)
+  applicationStatus   DriverApplicationStatus @default(PENDING)
+  simulationOnly      Boolean                 @default(false)
+  identityCheckStatus String                  @default("not_started")
+  policeCheckStatus   String                  @default("not_started")
+  licenseCheckStatus  String                  @default("not_started")
+  safetyScore         Int                     @default(0)
+  rating              Float                   @default(0)
+  incidentCount       Int                     @default(0)
+  zone                String
+  latitude            Float?
+  longitude           Float?
+  gpsUpdatedAt        DateTime?
+  vehicle             Vehicle?
+  dispatches          Dispatch[]
+  safetyChecks        SafetyCheck[]
+  safetyRatings       SafetyRating[]
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([companyId, status, applicationStatus, safetyScore])
+}
+
+model Vehicle {
+  id            String     @id @default(cuid())
+  companyId     String
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  driverId      String     @unique
+  driver        Driver     @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  vehicleNumber String     @unique
+  type          String
+  capacity      Int
+  zone          String
+  available     Boolean    @default(false)
+  etaMinutes    Int        @default(0)
+  readiness     String     @default("not_ready")
+  dispatches    Dispatch[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([companyId, available, readiness])
+}
+
+model Trip {
+  id               String         @id @default(cuid())
+  companyId        String
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  riderUserId      String
+  rider            User           @relation("RiderTrips", fields: [riderUserId], references: [id], onDelete: Restrict)
+  employeeId       String?
+  employee         Employee?      @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  status           TripStatus     @default(REQUESTED)
+  pickupLabel      String
+  pickupLatitude   Float?
+  pickupLongitude  Float?
+  dropoffLabel     String
+  dropoffLatitude  Float?
+  dropoffLongitude Float?
+  requestedAt      DateTime       @default(now())
+  assignedAt       DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  otpHash          String?
+  dispatches       Dispatch[]
+  safetyChecks     SafetyCheck[]
+  sosEvents        SosEvent[]
+  safetyRatings    SafetyRating[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([companyId, status, requestedAt])
+  @@index([riderUserId, requestedAt])
+}
+
+model Dispatch {
+  id          String         @id @default(cuid())
+  tripId      String
+  trip        Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  driverId    String
+  driver      Driver         @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  vehicleId   String
+  vehicle     Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  status      DispatchStatus @default(OFFERED)
+  etaMinutes  Int
+  safetyScore Int
+  attempt     Int            @default(1)
+  offeredAt   DateTime       @default(now())
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([tripId, attempt])
+  @@index([driverId, status])
+}
+
+model SafetyCheck {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  driverId  String?
+  driver    Driver?  @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  checkType String
+  status    String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([tripId, createdAt])
+}
+
+model SosEvent {
+  id               String    @id @default(cuid())
+  tripId           String
+  trip             Trip      @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  status           SosStatus @default(OPEN)
+  latitude         Float?
+  longitude        Float?
+  triggeredAt      DateTime  @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  escalatedAt      DateTime?
+  resolvedAt       DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, triggeredAt])
+}
+
+model TrustedContact {
+  id           String   @id @default(cuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  name         String
+  phone        String
+  relationship String?
+  createdAt    DateTime @default(now())
+
+  @@index([employeeId])
+}
+
+model SafetyRating {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  driverId  String
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  score     Int
+  breakdown Json?
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([driverId, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  oldValue    Json?
+  newValue    Json?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+}
