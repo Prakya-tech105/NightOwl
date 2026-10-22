@@ -70,30 +70,25 @@ function ConfirmationModal(props: {
   onCancel: () => void
   onConfirm: () => void
 }) {
-  const [mounted, setMounted] = useState(false)
+  const { open, loading, onCancel, onConfirm } = props
 
   useEffect(() => {
-    if (!props.open) {
-      setMounted(false)
-      return
-    }
-
-    setMounted(true)
+    if (!open) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        props.onCancel()
+        onCancel()
       }
 
-      if (event.key === 'Enter' && !props.loading) {
-        props.onConfirm()
+      if (event.key === 'Enter' && !loading) {
+        onConfirm()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [props])
+  }, [open, loading, onCancel, onConfirm])
 
-  if (!mounted || !props.open) return null
+  if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
@@ -124,27 +119,29 @@ function ConfirmationModal(props: {
 }
 
 function ToastNotification(props: { toast: ToastState | null; onClose: () => void }) {
+  const { toast, onClose } = props
+
   useEffect(() => {
-    if (!props.toast) return
+    if (!toast) return
 
-    const timeout = window.setTimeout(() => props.onClose(), 2600)
+    const timeout = window.setTimeout(onClose, 2600)
     return () => window.clearTimeout(timeout)
-  }, [props.toast, props.onClose])
+  }, [toast, onClose])
 
-  if (!props.toast) return null
+  if (!toast) return null
 
   const toneClass =
-    props.toast.tone === 'success'
+    toast.tone === 'success'
       ? 'border-emerald-500/60 bg-emerald-900/70 text-emerald-100'
-      : props.toast.tone === 'warning'
+      : toast.tone === 'warning'
         ? 'border-amber-500/60 bg-amber-900/70 text-amber-100'
         : 'border-sky-500/60 bg-sky-900/70 text-sky-100'
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-[60]">
       <div role="status" aria-live="polite" className={['min-w-[240px] rounded-xl border p-3 shadow-xl backdrop-blur-sm', toneClass].join(' ')}>
-        <p className="text-sm font-semibold">{props.toast.title}</p>
-        <p className="mt-1 text-xs opacity-90">{props.toast.message}</p>
+        <p className="text-sm font-semibold">{toast.title}</p>
+        <p className="mt-1 text-xs opacity-90">{toast.message}</p>
       </div>
     </div>
   )
@@ -492,6 +489,18 @@ function RecommendationFlow(props: {
 }
 
 export function GovOpsDashboard(props: GovOpsDashboardProps) {
+  const sourceKey = JSON.stringify([
+    props.activeVehicles,
+    props.coveragePct,
+    props.totalDemand,
+    props.totalNeededVehicles,
+    props.zones,
+  ])
+
+  return <GovOpsDashboardContent key={sourceKey} {...props} />
+}
+
+function GovOpsDashboardContent(props: GovOpsDashboardProps) {
   const rankedZones = useMemo(() => [...props.zones].sort((a, b) => b.shortage - a.shortage), [props.zones])
   const hotspot = rankedZones[0]?.zone ?? 'Ward 72'
 
@@ -518,21 +527,6 @@ export function GovOpsDashboard(props: GovOpsDashboardProps) {
   const [demandRefresh, setDemandRefresh] = useState<RefreshStatus>({ loading: false, lastUpdated: formatClockTime() })
   const [barRefresh, setBarRefresh] = useState<RefreshStatus>({ loading: false, lastUpdated: formatClockTime() })
   const [recommendationRefresh, setRecommendationRefresh] = useState<RefreshStatus>({ loading: false, lastUpdated: formatClockTime() })
-
-  useEffect(() => {
-    setLocalActiveVehicles(props.activeVehicles)
-    setLocalCoverage(props.coveragePct)
-    setLocalDemand(props.totalDemand)
-    setLocalRequiredVehicles(props.totalNeededVehicles)
-    setLocalZones(rankedZones)
-    setHighestRiskWard(hotspot)
-    setDeploymentFlowText('Deploy support')
-    setRecommendationTarget(hotspot)
-    setRecommendationCount(8)
-    setRecommendationSeverity('High priority')
-    setRecommendationCta('Deploy 8 Vehicles')
-    setRecommendationSummary('Ward demand is trending above capacity. Priority support should be redirected to the highest-risk area before the next shift surge.')
-  }, [props.activeVehicles, props.coveragePct, props.totalDemand, props.totalNeededVehicles, rankedZones, hotspot])
 
   const refreshCoverage = () => {
     setCoverageRefresh((current) => ({ ...current, loading: true }))

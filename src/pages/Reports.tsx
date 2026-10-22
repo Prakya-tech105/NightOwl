@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { StatusChip } from '../components/shared/StatusChip'
 import { useNightOwlStore } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
 
 type ReportType = 'coverage' | 'safety' | 'demand'
 
@@ -22,16 +23,17 @@ function downloadText(filename: string, text: string) {
 
 export function ReportsPage() {
   const state = useNightOwlStore()
+  const data = usePilotData()
   const [reportType, setReportType] = useState<ReportType>('coverage')
 
   const rows = useMemo(() => {
     return state.demand.map((record) => {
       const geo = state.geographies.find((item) => item.id === record.geographyId)
       const zone = geo?.ward ?? geo?.district ?? 'Unknown'
-      const available = state.vehicles.filter((vehicle) => vehicle.zone === zone && vehicle.available).length
+      const available = data.vehicles.filter((vehicle) => vehicle.zone === zone && vehicle.available).length
       const verifiedRate = Math.round(
-        (state.drivers.filter((driver) => driver.zone === zone && driver.safetyScore >= 75).length /
-          Math.max(state.drivers.filter((driver) => driver.zone === zone).length, 1)) *
+        (data.drivers.filter((driver) => driver.zone === zone && driver.safetyScore >= 75).length /
+          Math.max(data.drivers.filter((driver) => driver.zone === zone).length, 1)) *
           100,
       )
 
@@ -46,7 +48,7 @@ export function ReportsPage() {
         confidence: record.confidence,
       }
     })
-  }, [state.demand, state.geographies, state.vehicles, state.drivers])
+  }, [state.demand, state.geographies, data.vehicles, data.drivers])
 
   const exportCsv = () => {
     downloadText(`nightowl-${reportType}-report.csv`, csvFromRows(rows))
@@ -62,6 +64,13 @@ export function ReportsPage() {
     ].join('\n')
 
     downloadText(`nightowl-${reportType}-report.pdf.txt`, content)
+  }
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading report data...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
   }
 
   if (state.role === 'company_admin') {

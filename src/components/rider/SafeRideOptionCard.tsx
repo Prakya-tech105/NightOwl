@@ -38,9 +38,6 @@ export function SafeRideOptionCard(props: SafeRideOptionCardProps) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded-full border border-violet-700/70 bg-violet-900/30 px-2.5 py-1 text-violet-100">
-          Safety score {ride.safetyScore}
-        </span>
         {ride.verifiedOnly ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/70 bg-emerald-900/30 px-2.5 py-1 text-emerald-200">
             <ShieldCheck size={12} />

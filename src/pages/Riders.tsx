@@ -1,33 +1,41 @@
 import { useMemo, useState } from 'react'
-import { Phone, Share2, Siren, Star, UserRound } from 'lucide-react'
+import { Phone, Share2, Siren } from 'lucide-react'
 import { StatusChip } from '../components/shared/StatusChip'
 import { describeSafetyBadge, useNightOwlStore } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
 
 function RidersOperationsView() {
-  const state = useNightOwlStore()
-  const [selectedRiderId, setSelectedRiderId] = useState(state.riders[0]?.id ?? '')
+  const data = usePilotData()
+  const [selectedRiderId, setSelectedRiderId] = useState('')
   const [sosTriggered, setSosTriggered] = useState(false)
 
-  const selectedRider = state.riders.find((rider) => rider.id === selectedRiderId)
-  const assignedDispatch = state.dispatches.find((dispatch) => dispatch.id === selectedRider?.assignedDispatchId)
-  const driver = state.drivers.find((item) => item.id === assignedDispatch?.driverId)
-  const vehicle = state.vehicles.find((item) => item.id === assignedDispatch?.vehicleId)
+  const selectedRider = data.riders.find((rider) => rider.id === selectedRiderId) ?? data.riders[0]
+  const assignedDispatch = data.dispatches.find((dispatch) => dispatch.id === selectedRider?.assignedDispatchId)
+  const driver = assignedDispatch?.driver
+  const vehicle = assignedDispatch?.vehicle
 
-  const statusText = useMemo(() => {
+  const statusText = (() => {
     if (!assignedDispatch) return 'No ride assigned'
-    if (assignedDispatch.status === 'assigned') return 'Ride assigned'
-    if (assignedDispatch.status === 'en_route') return 'Driver arriving'
-    if (assignedDispatch.status === 'trip_started') return 'Trip in progress'
-    if (assignedDispatch.status === 'completed') return 'Trip completed'
-    return assignedDispatch.status.replace('_', ' ')
-  }, [assignedDispatch])
+    if (assignedDispatch.trip?.status === 'ASSIGNED') return 'Ride assigned'
+    if (assignedDispatch.trip?.status === 'ARRIVING') return 'Driver arriving'
+    if (assignedDispatch.trip?.status === 'IN_TRIP') return 'Trip in progress'
+    if (assignedDispatch.trip?.status === 'COMPLETED') return 'Trip completed'
+    return assignedDispatch.trip?.status.replace('_', ' ') ?? assignedDispatch.status
+  })()
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading riders...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
       <aside className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
         <h2 className="text-lg font-semibold text-slate-50">Rider List</h2>
         <div className="mt-3 space-y-2">
-          {state.riders.slice(0, 14).map((rider) => (
+          {data.riders.slice(0, 14).map((rider) => (
             <button
               key={rider.id}
               onClick={() => {
@@ -115,34 +123,56 @@ function RidersOperationsView() {
 }
 
 function RiderHistoryView() {
-  const state = useNightOwlStore()
-  const riderProfile = state.riders[0]
+  const user = useNightOwlStore((state) => state.currentUser)
+  const data = usePilotData()
+  const riderProfile = data.riders.find((rider) => rider.id === user?.id)
 
   const previousDrivers = useMemo(
-    () =>
-      state.drivers
-        .filter((driver) => driver.status !== 'offline')
-        .slice(0, 8)
-        .map((driver, index) => ({
-          id: `hist-${driver.id}`,
-          name: driver.name,
-          rating: Math.max(3.8, Math.min(5, Number(driver.rating.toFixed(1)))),
-          experienceYears: 2 + ((index * 3) % 9),
-          tripsWithYou: 1 + (index % 4),
-          lastRideAt: new Date(Date.now() - (index + 2) * 86_400_000).toLocaleDateString(),
-          safetyBadge: describeSafetyBadge(driver.safetyScore),
-        })),
-    [state.drivers],
+    () => {
+      const drivers = new Map<string, {
+        id: string
+        name: string
+        safetyScore: number
+        tripsWithYou: number
+        lastRideAt: string
+        safetyBadge: string
+      }>()
+
+      for (const trip of data.trips) {
+        for (const dispatch of trip.dispatches) {
+          if (!dispatch.driver) continue
+          const previous = drivers.get(dispatch.driver.id)
+          drivers.set(dispatch.driver.id, {
+            id: dispatch.driver.id,
+            name: dispatch.driver.name,
+            safetyScore: dispatch.safetyScore,
+            tripsWithYou: (previous?.tripsWithYou ?? 0) + 1,
+            lastRideAt: previous?.lastRideAt ?? new Date(trip.requestedAt).toLocaleDateString(),
+            safetyBadge: describeSafetyBadge(dispatch.safetyScore),
+          })
+        }
+      }
+
+      return Array.from(drivers.values()).slice(0, 8)
+    },
+    [data.trips],
   )
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading ride history...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 sm:p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-slate-50">Your Previous Drivers</h2>
+            <h2 className="text-xl font-semibold text-slate-50">Drivers from Your Trips</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Ratings and experience from your previous NightOwl rides.
+              Driver safety scores and ride counts from recorded trips.
             </p>
           </div>
           <span className="rounded-xl border border-indigo-700/60 bg-indigo-900/30 px-3 py-1.5 text-xs font-semibold text-indigo-100">
@@ -164,20 +194,10 @@ function RiderHistoryView() {
                 />
               </div>
 
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
-                  <p className="text-slate-400">Rating</p>
-                  <p className="mt-1 inline-flex items-center gap-1 font-semibold text-amber-300">
-                    <Star size={12} />
-                    {item.rating}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
-                  <p className="text-slate-400">Experience</p>
-                  <p className="mt-1 inline-flex items-center gap-1 font-semibold text-slate-100">
-                    <UserRound size={12} />
-                    {item.experienceYears} yrs
-                  </p>
+                  <p className="text-slate-400">Safety score</p>
+                  <p className="mt-1 font-semibold text-amber-300">{item.safetyScore}</p>
                 </div>
                 <div className="rounded-lg border border-slate-700 bg-slate-900/70 p-2">
                   <p className="text-slate-400">Rides with you</p>

@@ -1,0 +1,10 @@
+ALTER TABLE "Company"
+ADD COLUMN "safetyWeights" JSONB;
+
+ALTER TABLE "Driver"
+ADD COLUMN "gpsActive" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "panicReady" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "trainingComplete" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "Trip"
+ADD COLUMN "scheduledAt" TIMESTAMP(3);

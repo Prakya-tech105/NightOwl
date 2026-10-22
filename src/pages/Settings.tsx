@@ -1,4 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
   Bell,
@@ -15,6 +16,10 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useNightOwlStore } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
+import { fetchDriverSafetyHistory, updateSafetyWeights } from '../lib/api'
+import { defaultSafetyWeights } from '../lib/safety'
+import type { SafetyWeights } from '../types/models'
 
 function NumberInput(props: {
   label: string
@@ -73,14 +78,16 @@ function ToggleRow(props: {
 }
 
 function RiderSettingsView() {
-  const rider = useNightOwlStore((state) => state.riders[0])
+  const user = useNightOwlStore((state) => state.currentUser)
   const logout = useNightOwlStore((state) => state.logout)
+  const data = usePilotData()
+  const rider = data.riders.find((item) => item.id === user?.id)
 
-  const [trustedContacts, setTrustedContacts] = useState<string[]>(
-    rider?.emergencyContacts.slice(0, 3) ?? ['+91 9988776655', '+91 8877665544'],
-  )
+  const [trustedContactsOverride, setTrustedContactsOverride] = useState<string[] | null>(null)
   const [newContact, setNewContact] = useState('')
-  const [defaultEmergencyContact, setDefaultEmergencyContact] = useState<string>(trustedContacts[0] ?? '')
+  const [defaultEmergencyContactOverride, setDefaultEmergencyContactOverride] = useState<string | null>(null)
+  const trustedContacts = trustedContactsOverride ?? rider?.emergencyContacts.slice(0, 3) ?? []
+  const defaultEmergencyContact = defaultEmergencyContactOverride ?? trustedContacts[0] ?? ''
 
   const [autoShareNightTrips, setAutoShareNightTrips] = useState(true)
   const [autoShareAfter, setAutoShareAfter] = useState('20:00')
@@ -125,28 +132,35 @@ function RiderSettingsView() {
 
   const accountProfile = useMemo(
     () => ({
-      name: rider?.name ?? 'NightOwl Rider',
-      phone: rider?.phone ?? '+91 9000000000',
+      name: user?.displayName ?? 'NightOwl Rider',
+      phone: user?.phone ?? '',
       email: 'rider@nightowl.in',
     }),
-    [rider?.name, rider?.phone],
+    [user?.displayName, user?.phone],
   )
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading account...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
+  }
 
   const addTrustedContact = () => {
     if (!canAddContact) return
 
     const next = newContact.trim()
-    setTrustedContacts((current) => [...current, next])
+    setTrustedContactsOverride((current) => [...(current ?? trustedContacts), next])
     if (!defaultEmergencyContact) {
-      setDefaultEmergencyContact(next)
+      setDefaultEmergencyContactOverride(next)
     }
     setNewContact('')
   }
 
   const removeTrustedContact = (contact: string) => {
-    setTrustedContacts((current) => current.filter((item) => item !== contact))
+    setTrustedContactsOverride((current) => (current ?? trustedContacts).filter((item) => item !== contact))
     if (defaultEmergencyContact === contact) {
-      setDefaultEmergencyContact('')
+      setDefaultEmergencyContactOverride('')
     }
   }
 
@@ -172,7 +186,7 @@ function RiderSettingsView() {
                         type="radio"
                         name="defaultEmergency"
                         checked={defaultEmergencyContact === contact}
-                        onChange={() => setDefaultEmergencyContact(contact)}
+                        onChange={() => setDefaultEmergencyContactOverride(contact)}
                       />
                       Default emergency contact
                     </label>
@@ -505,15 +519,46 @@ function RiderSettingsView() {
 }
 
 function OperationsSettingsView() {
+  const user = useNightOwlStore((state) => state.currentUser)
   const demandSettings = useNightOwlStore((state) => state.demandSettings)
-  const safetyWeights = useNightOwlStore((state) => state.safetyWeights)
   const geographies = useNightOwlStore((state) => state.geographies)
   const updateDemandSettings = useNightOwlStore((state) => state.updateDemandSettings)
-  const updateSafetyWeights = useNightOwlStore((state) => state.updateSafetyWeights)
   const recalculateDemandForZone = useNightOwlStore((state) => state.recalculateDemandForZone)
+  const data = usePilotData()
+  const queryClient = useQueryClient()
+  const [safetyWeightsDraft, setSafetyWeightsDraft] = useState<SafetyWeights | null>(null)
+  const [selectedHistoryDriverId, setSelectedHistoryDriverId] = useState('')
+  const safetyWeights = safetyWeightsDraft ?? data.safetyWeights ?? defaultSafetyWeights
+  const selectedHistoryDriverIdValue = selectedHistoryDriverId || data.drivers[0]?.id || ''
+  const safetyHistoryQuery = useQuery({
+    queryKey: ['safetyHistory', user?.id ?? 'anonymous', selectedHistoryDriverIdValue],
+    queryFn: () => fetchDriverSafetyHistory(selectedHistoryDriverIdValue),
+    enabled: Boolean(selectedHistoryDriverIdValue),
+  })
+  const safetyWeightsMutation = useMutation({
+    mutationFn: updateSafetyWeights,
+    onSuccess: async (weights) => {
+      queryClient.setQueryData(['safetyWeights', user?.id ?? 'anonymous'], weights)
+      setSafetyWeightsDraft(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['drivers', user?.id ?? 'anonymous'] }),
+        queryClient.invalidateQueries({ queryKey: ['safetyHistory', user?.id ?? 'anonymous'] }),
+      ])
+    },
+  })
 
   const applyDemandUpdate = (field: keyof typeof demandSettings, value: number) => {
     updateDemandSettings({ [field]: value })
+  }
+  const applySafetyWeight = (weights: Partial<SafetyWeights>) => {
+    setSafetyWeightsDraft((current) => ({ ...safetyWeights, ...current, ...weights }))
+  }
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading settings...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
   }
 
   return (
@@ -577,39 +622,98 @@ function OperationsSettingsView() {
           <NumberInput
             label="Aadhaar Verified"
             value={safetyWeights.aadhaarVerified}
-            onChange={(value) => updateSafetyWeights({ aadhaarVerified: value })}
+            onChange={(value) => applySafetyWeight({ aadhaarVerified: value })}
           />
           <NumberInput
             label="License Verified"
             value={safetyWeights.licenseVerified}
-            onChange={(value) => updateSafetyWeights({ licenseVerified: value })}
+            onChange={(value) => applySafetyWeight({ licenseVerified: value })}
           />
           <NumberInput
             label="Background Cleared"
             value={safetyWeights.backgroundCleared}
-            onChange={(value) => updateSafetyWeights({ backgroundCleared: value })}
+            onChange={(value) => applySafetyWeight({ backgroundCleared: value })}
           />
           <NumberInput
             label="GPS Active"
             value={safetyWeights.gpsActive}
-            onChange={(value) => updateSafetyWeights({ gpsActive: value })}
+            onChange={(value) => applySafetyWeight({ gpsActive: value })}
           />
           <NumberInput
             label="Panic Ready"
             value={safetyWeights.panicReady}
-            onChange={(value) => updateSafetyWeights({ panicReady: value })}
+            onChange={(value) => applySafetyWeight({ panicReady: value })}
           />
           <NumberInput
             label="Training Complete"
             value={safetyWeights.trainingComplete}
-            onChange={(value) => updateSafetyWeights({ trainingComplete: value })}
+            onChange={(value) => applySafetyWeight({ trainingComplete: value })}
           />
           <NumberInput
             label="Rating + History"
             value={safetyWeights.ratingAndHistory}
-            onChange={(value) => updateSafetyWeights({ ratingAndHistory: value })}
+            onChange={(value) => applySafetyWeight({ ratingAndHistory: value })}
           />
         </div>
+        <button
+          type="button"
+          disabled={!safetyWeightsDraft || safetyWeightsMutation.isPending}
+          onClick={() => safetyWeightsMutation.mutate(safetyWeights)}
+          className="mt-4 rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {safetyWeightsMutation.isPending ? 'Saving...' : 'Save safety weights'}
+        </button>
+        {safetyWeightsMutation.error ? (
+          <p role="alert" className="mt-3 text-sm text-rose-300">{safetyWeightsMutation.error.message}</p>
+        ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 xl:col-span-2">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-50">Safety Score History</h2>
+            <p className="mt-1 text-sm text-slate-400">Recorded score and eligibility changes for this company.</p>
+          </div>
+          <label className="text-sm text-slate-300">
+            Driver
+            <select
+              value={selectedHistoryDriverIdValue}
+              onChange={(event) => setSelectedHistoryDriverId(event.target.value)}
+              className="ml-2 rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-slate-100"
+            >
+              {data.drivers.map((driver) => (
+                <option key={driver.id} value={driver.id}>{driver.name}</option>
+              ))}
+            </select>
+          </label>
+        </header>
+        {safetyHistoryQuery.isLoading ? (
+          <p className="mt-4 text-sm text-slate-400">Loading safety history...</p>
+        ) : safetyHistoryQuery.error ? (
+          <p role="alert" className="mt-4 text-sm text-rose-300">{safetyHistoryQuery.error.message}</p>
+        ) : safetyHistoryQuery.data?.length ? (
+          <ol className="mt-4 space-y-2">
+            {safetyHistoryQuery.data.map((entry) => (
+              <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm">
+                <span className="text-slate-200">
+                  {entry.previousScore === null ? 'Initial score' : `${entry.previousScore} → ${entry.score}`}
+                  {entry.previousScore === null ? `: ${entry.score}` : ''}
+                  {' · '}
+                  {entry.eligible ? 'Eligible' : 'Not eligible'}
+                  {' · '}
+                  {entry.reason.replaceAll('_', ' ')}
+                </span>
+                <time className="text-xs text-slate-500" dateTime={entry.createdAt}>
+                  {new Date(entry.createdAt).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-4 rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-400">
+            No safety score changes have been recorded for this driver.
+          </p>
+        )}
       </section>
     </div>
   )

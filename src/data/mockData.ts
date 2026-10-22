@@ -119,6 +119,8 @@ export const drivers: Driver[] = Array.from({ length: 80 }, (_, i) => {
     trainingComplete: idx % 10 !== 0,
     rating: 3.7 + (idx % 13) * 0.1,
     incidentCount: idx % 12 === 0 ? 2 : idx % 5 === 0 ? 1 : 0,
+    simulationOnly: false,
+    applicationStatus: 'approved' as const,
     status: (idx % 14 === 0 ? 'offline' : idx % 3 === 0 ? 'assigned' : 'available') as
       | 'available'
       | 'assigned'

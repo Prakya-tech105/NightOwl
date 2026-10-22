@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, CalendarClock, Clock3, CreditCard, MapPin, Navigation, ShieldCheck } from 'lucide-react'
-import { DriverArrivalCard } from './DriverArrivalCard'
 import { FloatingSOSButton } from './FloatingSOSButton'
 import { RideNowScheduleToggle } from './RideNowScheduleToggle'
 import { RiderLocationField } from './RiderLocationField'
@@ -9,8 +9,10 @@ import { SafeRideOptionCard } from './SafeRideOptionCard'
 import { SafetyAdvisoryCard } from './SafetyAdvisoryCard'
 import { fetchGooglePlaceSuggestions, isGooglePlacesConfigured, reverseGeocodeLatLng } from '../../lib/googlePlaces'
 import { calculateIndianMeterFare } from '../../lib/indianMeterFare'
+import { createTrip } from '../../lib/api'
+import type { Trip } from '../../types/models'
 import { useNightOwlStore } from '../../store/useNightOwlStore'
-import type { DriverSnapshot, RideOption, RiderFlowStep, RouteSummary, TripMode } from './types'
+import type { RideOption, RiderFlowStep, RouteSummary, TripMode } from './types'
 
 const bengaluruLocations = [
   'Indiranagar Metro Station, Bengaluru',
@@ -36,7 +38,6 @@ const baseRideOptions: Omit<RideOption, 'fare'>[] = [
     name: 'Safe Auto',
     etaMinutes: 5,
     capacity: 3,
-    safetyScore: 92,
     verifiedOnly: true,
     recommendedTag: 'Best Value',
   },
@@ -45,7 +46,6 @@ const baseRideOptions: Omit<RideOption, 'fare'>[] = [
     name: 'Pink Auto',
     etaMinutes: 6,
     capacity: 3,
-    safetyScore: 95,
     verifiedOnly: true,
     recommendedTag: 'Safest',
   },
@@ -54,7 +54,6 @@ const baseRideOptions: Omit<RideOption, 'fare'>[] = [
     name: 'Mini',
     etaMinutes: 4,
     capacity: 4,
-    safetyScore: 89,
     verifiedOnly: true,
   },
   {
@@ -62,7 +61,6 @@ const baseRideOptions: Omit<RideOption, 'fare'>[] = [
     name: 'Sedan',
     etaMinutes: 7,
     capacity: 4,
-    safetyScore: 90,
     verifiedOnly: true,
   },
 ]
@@ -112,36 +110,6 @@ const fareModelByRideId: Record<
   },
 }
 
-const drivers: DriverSnapshot[] = [
-  {
-    id: 'drv-latha',
-    name: 'Latha Reddy',
-    vehicleNumber: 'KA-03-MJ-4821',
-    vehicleType: 'Pink Auto',
-    etaMinutes: 6,
-    safetyConfidence: 96,
-    backgroundChecked: true,
-  },
-  {
-    id: 'drv-ananya',
-    name: 'Ananya S',
-    vehicleNumber: 'KA-01-PQ-7148',
-    vehicleType: 'Mini',
-    etaMinutes: 4,
-    safetyConfidence: 88,
-    backgroundChecked: true,
-  },
-  {
-    id: 'drv-kavya',
-    name: 'Kavya N',
-    vehicleNumber: 'KA-05-TC-2639',
-    vehicleType: 'Sedan',
-    etaMinutes: 8,
-    safetyConfidence: 82,
-    backgroundChecked: true,
-  },
-]
-
 const routeSummaryByKey: Record<string, RouteSummary> = {
   'Indiranagar|Koramangala': { durationMinutes: 24, distanceKm: 8.9, corridorHint: 'Well-lit route preferred' },
   'MG Road|Jayanagar': { durationMinutes: 21, distanceKm: 7.1, corridorHint: 'Patrolled corridor active' },
@@ -186,6 +154,20 @@ type RiderPassengerFlowProps = {
 
 export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
   const setSelectedPickupLocality = useNightOwlStore((state) => state.setSelectedPickupLocality)
+  const user = useNightOwlStore((state) => state.currentUser)
+  const queryClient = useQueryClient()
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(null)
+  const tripMutation = useMutation({
+    mutationFn: createTrip,
+    onSuccess: async (trip) => {
+      setActiveTrip(trip)
+      setStep('arriving')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['trips', user?.id ?? 'anonymous'] }),
+        queryClient.invalidateQueries({ queryKey: ['dispatches', user?.id ?? 'anonymous'] }),
+      ])
+    },
+  })
   const [step, setStep] = useState<RiderFlowStep>('booking')
   const [fromLocation, setFromLocation] = useState('Indiranagar Metro Station, Bengaluru')
   const [toLocation, setToLocation] = useState('Forum Mall, Koramangala, Bengaluru')
@@ -193,7 +175,6 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
   const [scheduledAt, setScheduledAt] = useState('')
   const [selectedRideId, setSelectedRideId] = useState(baseRideOptions[1].id)
   const [paymentMethod, setPaymentMethod] = useState('UPI')
-  const [activeDriver, setActiveDriver] = useState<DriverSnapshot>(drivers[0])
   const [sosTriggered, setSosTriggered] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
@@ -267,14 +248,17 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
   }
 
   function confirmRide() {
-    const linkedDriver = drivers.find((driver) =>
-      driver.vehicleType.toLowerCase().includes(selectedRide.name.toLowerCase().split(' ')[0]),
-    )
-    setActiveDriver(linkedDriver ?? drivers[0])
-    setStep('arriving')
+    tripMutation.mutate({
+      pickupLabel: fromLocation,
+      dropoffLabel: toLocation,
+      ...(tripMode === 'later' && scheduledAt
+        ? { scheduledAt: new Date(scheduledAt).toISOString() }
+        : {}),
+    })
   }
 
   function resetRideFlow() {
+    setActiveTrip(null)
     setStep('booking')
     setSelectedRideId(rideOptions[1]?.id ?? rideOptions[0].id)
     setTripActionMessage(null)
@@ -283,7 +267,7 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
   }
 
   async function handleShareLiveTrip() {
-    const text = `NightOwl live trip: ${fromLocation} to ${toLocation}. Driver ${activeDriver.name}, vehicle ${activeDriver.vehicleNumber}, ETA 14 min.`
+    const text = `NightOwl trip ${activeTrip?.id ?? ''}: ${fromLocation} to ${toLocation}.`
 
     try {
       if (navigator.share) {
@@ -522,9 +506,6 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
               <span className="rounded-full border border-violet-700/70 bg-violet-900/30 px-2.5 py-1 text-violet-100">
                 ETA {selectedRide.etaMinutes} min
               </span>
-              <span className="rounded-full border border-violet-700/70 bg-violet-900/30 px-2.5 py-1 text-violet-100">
-                Safety score {selectedRide.safetyScore}
-              </span>
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/70 bg-emerald-900/30 px-2.5 py-1 text-emerald-200">
                 <ShieldCheck size={12} />
                 Verified driver only
@@ -572,30 +553,38 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
               </button>
               <button
                 type="button"
+                disabled={tripMutation.isPending}
                 onClick={confirmRide}
-                className="h-12 rounded-xl bg-gradient-to-r from-violet-700 to-indigo-600 text-sm font-semibold text-white shadow-[0_0_22px_rgba(124,58,237,0.4)] hover:from-violet-600 hover:to-indigo-500"
+                className="h-12 rounded-xl bg-gradient-to-r from-violet-700 to-indigo-600 text-sm font-semibold text-white shadow-[0_0_22px_rgba(124,58,237,0.4)] hover:from-violet-600 hover:to-indigo-500 disabled:cursor-wait disabled:opacity-60"
               >
-                Confirm Ride
+                {tripMutation.isPending ? 'Requesting ride...' : 'Confirm Ride'}
               </button>
             </div>
+            {tripMutation.error ? (
+              <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-3 text-sm text-rose-200">
+                {tripMutation.error.message}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
         {step === 'arriving' ? (
           <section className="space-y-5 rounded-3xl border border-indigo-900/70 bg-slate-950/55 p-5 sm:p-6">
             <div>
-              <h3 className="text-2xl font-semibold text-slate-100">Driver arriving</h3>
+              <h3 className="text-2xl font-semibold text-slate-100">Trip request submitted</h3>
               <p className="mt-1 text-sm text-slate-300">
-                Match found for your trip from {fromLocation} to {toLocation}.
+                Your trip from {fromLocation} to {toLocation} is waiting for a safety-gated driver assignment.
               </p>
+              {activeTrip ? (
+                <p className="mt-2 text-xs text-slate-400">
+                  Trip {activeTrip.id} • {activeTrip.status.replace('_', ' ')}
+                </p>
+              ) : null}
             </div>
 
-            <DriverArrivalCard
-              driver={activeDriver}
-              fromLocation={fromLocation}
-              toLocation={toLocation}
-              onStartTrip={() => setStep('in_trip')}
-            />
+            <div className="rounded-2xl border border-amber-700/50 bg-amber-950/20 p-4 text-sm text-amber-100">
+              No driver has been assigned yet. The operations team must dispatch an eligible vehicle before pickup.
+            </div>
 
             <SafetyAdvisoryCard
               title="Trip advisory"
@@ -685,11 +674,10 @@ export function RiderPassengerFlow(props: RiderPassengerFlowProps) {
 
             {showVerificationSummary ? (
               <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-300">
-                <p className="font-semibold text-slate-100">Driver verification summary</p>
-                <p className="mt-2">Driver: {activeDriver.name}</p>
-                <p>Vehicle: {activeDriver.vehicleNumber}</p>
-                <p>Background checked: {activeDriver.backgroundChecked ? 'Yes' : 'No'}</p>
-                <p>Safety confidence: {activeDriver.safetyConfidence}%</p>
+                <p className="font-semibold text-slate-100">Trip verification summary</p>
+                <p className="mt-2">Trip ID: {activeTrip?.id ?? 'Not submitted'}</p>
+                <p>Trip status: {activeTrip?.status ?? 'Not submitted'}</p>
+                <p>Driver details are shown only after a server-side dispatch.</p>
               </div>
             ) : null}
 

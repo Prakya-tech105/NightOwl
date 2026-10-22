@@ -14,17 +14,6 @@ export type RideOption = {
   etaMinutes: number
   fare: number
   capacity: number
-  safetyScore: number
   verifiedOnly: boolean
   recommendedTag?: 'Safest' | 'Best Value'
-}
-
-export type DriverSnapshot = {
-  id: string
-  name: string
-  vehicleNumber: string
-  vehicleType: string
-  etaMinutes: number
-  safetyConfidence: number
-  backgroundChecked: boolean
 }

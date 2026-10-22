@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import { StatusChip } from '../components/shared/StatusChip'
 import { calculateCoverageGap } from '../lib/calculations'
 import { useNightOwlStore } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
 
 const districtCoords: Record<string, [number, number]> = {
   'Bengaluru Urban': [12.9716, 77.5946],
@@ -41,6 +42,7 @@ const districtCoords: Record<string, [number, number]> = {
 
 export function DemandMapPage() {
   const state = useNightOwlStore()
+  const data = usePilotData()
   const recalculateDemandForZone = useNightOwlStore((store) => store.recalculateDemandForZone)
   const [selectedZoneId, setSelectedZoneId] = useState(state.geographies[0]?.id ?? '')
   const [threshold, setThreshold] = useState(120)
@@ -48,10 +50,10 @@ export function DemandMapPage() {
   const nearbyDriverRows = useMemo(() => {
     const pickupLocality = state.selectedPickupLocality.toLowerCase()
 
-    const driversInLocality = state.drivers
+    const driversInLocality = data.drivers
       .filter((driver) => driver.status === 'available' && driver.zone.toLowerCase().includes(pickupLocality))
       .map((driver) => {
-        const linkedVehicle = state.vehicles.find(
+        const linkedVehicle = data.vehicles.find(
           (vehicle) =>
             vehicle.driverId === driver.id && vehicle.available && vehicle.readiness === 'ready' && vehicle.zone === driver.zone,
         )
@@ -70,7 +72,7 @@ export function DemandMapPage() {
       .sort((a, b) => a.etaMinutes - b.etaMinutes)
 
     return driversInLocality.slice(0, 8)
-  }, [state.selectedPickupLocality, state.drivers, state.vehicles])
+  }, [state.selectedPickupLocality, data.drivers, data.vehicles])
 
   const localCriticalGaps = useMemo(() => {
     const selectedLocality = state.selectedPickupLocality.toLowerCase()
@@ -80,13 +82,13 @@ export function DemandMapPage() {
       const zoneName = (geo?.ward ?? geo?.district ?? '').toLowerCase()
       if (!zoneName.includes(selectedLocality)) return count
 
-      const available = state.vehicles.filter(
+      const available = data.vehicles.filter(
         (vehicle) => vehicle.zone.toLowerCase() === zoneName && vehicle.available && vehicle.readiness === 'ready',
       ).length
 
       return count + (calculateCoverageGap(record.vehiclesNeeded, available) > 2 ? 1 : 0)
     }, 0)
-  }, [state.selectedPickupLocality, state.demand, state.geographies, state.vehicles])
+  }, [state.selectedPickupLocality, state.demand, state.geographies, data.vehicles])
 
   const rows = useMemo(
     () =>
@@ -94,7 +96,7 @@ export function DemandMapPage() {
         .map((record) => {
           const geo = state.geographies.find((item) => item.id === record.geographyId)
           const zoneName = geo?.ward ?? geo?.district ?? 'Unknown'
-          const available = state.vehicles.filter(
+          const available = data.vehicles.filter(
             (vehicle) => vehicle.zone === zoneName && vehicle.available && vehicle.readiness === 'ready',
           ).length
 
@@ -113,7 +115,7 @@ export function DemandMapPage() {
         })
         .filter((row) => row.demand >= threshold)
         .sort((a, b) => b.demand - a.demand),
-    [state.demand, state.geographies, state.vehicles, threshold],
+    [state.demand, state.geographies, data.vehicles, threshold],
   )
 
   const selected = rows.find((row) => row.id === selectedZoneId) ?? rows[0]
@@ -135,7 +137,7 @@ export function DemandMapPage() {
   }, [rows, state.geographies])
 
   useEffect(() => {
-    if (state.role !== 'government_admin') return
+    if (state.role !== 'government_admin' || data.isLoading || data.error) return
     if (!govMapContainerRef.current) return
 
     const map = L.map(govMapContainerRef.current, {
@@ -212,7 +214,14 @@ export function DemandMapPage() {
     return () => {
       map.remove()
     }
-  }, [state.role, mapRows])
+  }, [state.role, data.isLoading, data.error, mapRows])
+
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading fleet availability...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
+  }
 
   if (state.role === 'government_admin') {
     const topThree = [...rows].slice(0, 3)

@@ -1,16 +1,45 @@
-import { ShieldCheck, Truck, Users } from 'lucide-react'
-import type { Role } from '../types/models'
+import { useState, type FormEvent } from 'react'
+import { ShieldCheck } from 'lucide-react'
+import { requestOtp, verifyOtp } from '../lib/api'
 import { useNightOwlStore } from '../store/useNightOwlStore'
 
-const roles: Array<{ role: Role; title: string; subtitle: string }> = [
-  { role: 'rider', title: 'Rider', subtitle: 'Trip visibility and SOS support' },
-  { role: 'fleet_operator', title: 'Fleet Operator', subtitle: 'Vehicle readiness and dispatch execution' },
-  { role: 'company_admin', title: 'Company Admin', subtitle: 'Employee demand and fleet alignment' },
-  { role: 'government_admin', title: 'Government Admin', subtitle: 'City demand and coverage command' },
-]
-
 export function LoginPage() {
-  const loginAsDemoRole = useNightOwlStore((state) => state.loginAsDemoRole)
+  const loginWithToken = useNightOwlStore((state) => state.loginWithToken)
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [codeRequested, setCodeRequested] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function handleRequestOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await requestOtp(phone.trim())
+      setMessage(response.message)
+      setCodeRequested(true)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not request a code.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await verifyOtp(phone.trim(), code.trim())
+      loginWithToken(response.accessToken, response.user)
+    } catch (verificationError) {
+      setError(verificationError instanceof Error ? verificationError.message : 'Could not verify the code.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="grid min-h-screen place-items-center bg-app-gradient px-4 py-8 text-slate-100">
@@ -18,86 +47,104 @@ export function LoginPage() {
         <div className="grid gap-8 lg:grid-cols-[1.1fr_1fr]">
           <section>
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs font-semibold tracking-[0.16em] text-amber-300">
-              NightOwl Civic Transport Grid
+              ACME SYSTEMS · BELLANDUR / ORR PILOT
             </div>
             <h1 className="mt-4 text-4xl font-bold leading-tight sm:text-5xl">
-              Women Night-Safety
-              <span className="block text-amber-400">Planning and Dispatch</span>
+              Women&apos;s night commute
+              <span className="block text-amber-400">Safety Operations</span>
             </h1>
             <p className="mt-4 max-w-xl text-sm text-slate-300 sm:text-base">
-              Forecast tonight demand, deploy only verified drivers, and monitor coverage in real time across
-              Karnataka zones.
+              A single-employer pilot focused on safety-gated dispatch, active trip support, and
+              auditable employer reporting across the Bellandur corridor.
             </p>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                <ShieldCheck className="text-emerald-400" size={18} />
-                <p className="mt-2 text-xs uppercase text-slate-400">Verified Dispatch Rate</p>
-                <p className="mt-1 text-xl font-bold">96%</p>
+            <div className="mt-8 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+              <div className="flex items-center gap-2 text-amber-300">
+                <ShieldCheck size={18} />
+                <h2 className="font-semibold">Simulation notice</h2>
               </div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                <Truck className="text-amber-400" size={18} />
-                <p className="mt-2 text-xs uppercase text-slate-400">Vehicles Active</p>
-                <p className="mt-1 text-xl font-bold">48</p>
-              </div>
-              <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3">
-                <Users className="text-violet-300" size={18} />
-                <p className="mt-2 text-xs uppercase text-slate-400">Expected Riders</p>
-                <p className="mt-1 text-xl font-bold">1,172</p>
-              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Seeded accounts, driver checks, KYC, police verification, and development OTP delivery
+                are simulated. No real verification or SMS is performed.
+              </p>
             </div>
           </section>
 
           <section className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5">
-            <h2 className="text-lg font-semibold">Sign In</h2>
-            <p className="mt-2 text-sm text-slate-400">Enter your credentials to continue.</p>
+            <h2 className="text-lg font-semibold">Sign in with your phone</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              Only phone numbers enrolled by the pilot employer can sign in.
+            </p>
 
-            <form className="mt-4 space-y-3">
+            <form
+              className="mt-5 space-y-4"
+              onSubmit={codeRequested ? handleVerifyOtp : handleRequestOtp}
+            >
               <label className="block text-sm text-slate-300">
-                Email
+                Phone number
                 <input
-                  type="email"
-                  placeholder="admin@nightowl.in"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="+919900000101"
+                  required
+                  disabled={loading || codeRequested}
                   className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-slate-100"
                 />
               </label>
-              <label className="block text-sm text-slate-300">
-                Password
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-slate-100"
-                />
-              </label>
+              {codeRequested && (
+                <>
+                  <p className="text-sm text-slate-300" role="status">{message}</p>
+                  <label className="block text-sm text-slate-300">
+                    Six-digit one-time code
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={code}
+                      onChange={(event) => setCode(event.target.value)}
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      required
+                      className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2 text-slate-100"
+                    />
+                  </label>
+                </>
+              )}
+              {error && (
+                <p className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200" role="alert">
+                  {error}
+                </p>
+              )}
               <button
-                type="button"
-                onClick={() => loginAsDemoRole('government_admin')}
-                className="w-full rounded-xl bg-amber-400 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-300"
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-xl bg-amber-400 px-4 py-2 font-semibold text-slate-950 hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60"
               >
-                Sign in
+                {loading ? 'Please wait...' : codeRequested ? 'Verify and continue' : 'Send one-time code'}
               </button>
-              <button type="button" className="w-full text-sm text-slate-400 hover:text-slate-200">
-                Forgot password
-              </button>
+              {codeRequested && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setCodeRequested(false)
+                    setCode('')
+                    setMessage('')
+                    setError(null)
+                  }}
+                  className="w-full text-sm text-slate-400 hover:text-slate-200"
+                >
+                  Use a different phone number
+                </button>
+              )}
             </form>
 
-            <div className="mt-5 border-t border-slate-700 pt-4">
-              <h3 className="text-base font-semibold text-slate-100">Demo Role Login</h3>
-              <p className="mt-2 text-sm text-slate-400">Or select a role to enter the command dashboard instantly.</p>
-
-              <div className="mt-4 space-y-3">
-                {roles.map((entry) => (
-                  <button
-                    key={entry.role}
-                    onClick={() => loginAsDemoRole(entry.role)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-left hover:border-amber-400/80 hover:bg-slate-900"
-                  >
-                    <p className="font-semibold text-slate-100">{entry.title}</p>
-                    <p className="text-sm text-slate-400">{entry.subtitle}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="mt-5 border-t border-slate-700 pt-4 text-xs leading-5 text-slate-500">
+              Development OTPs are logged by the API and are not sent as SMS. Real SMS delivery requires
+              an OTP provider integration.
+            </p>
           </section>
         </div>
       </div>

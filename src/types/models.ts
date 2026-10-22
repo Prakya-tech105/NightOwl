@@ -48,6 +48,8 @@ export type Driver = {
   safetyScore: number
   status: 'available' | 'assigned' | 'offline'
   zone: string
+  simulationOnly: boolean
+  applicationStatus: 'pending' | 'approved' | 'rejected'
 }
 
 export type Vehicle = {
@@ -63,24 +65,61 @@ export type Vehicle = {
 }
 
 export type DispatchStatus =
-  | 'pending'
-  | 'assigned'
-  | 'en_route'
-  | 'arrived'
-  | 'trip_started'
-  | 'completed'
-  | 'cancelled'
+  | 'OFFERED'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'EXPIRED'
+  | 'ASSIGNED'
+  | 'CANCELLED'
+
+export type TripStatus =
+  | 'REQUESTED'
+  | 'ASSIGNED'
+  | 'ARRIVING'
+  | 'IN_TRIP'
+  | 'COMPLETED'
+  | 'CANCELLED'
 
 export type Dispatch = {
   id: string
-  geographyId: string
-  demandRecordId: string
+  tripId: string
   vehicleId: string
   driverId: string
   etaMinutes: number
   safetyScore: number
   status: DispatchStatus
+  attempt: number
   createdAt: string
+  trip?: {
+    id: string
+    riderUserId: string
+    pickupLabel: string
+    dropoffLabel: string
+    status: TripStatus
+    rider?: { id: string; displayName: string; phone: string }
+  }
+  driver?: Pick<Driver, 'id' | 'name' | 'phone' | 'safetyScore'>
+  vehicle?: Pick<Vehicle, 'id' | 'vehicleNumber' | 'type'>
+}
+
+export type Trip = {
+  id: string
+  riderUserId: string
+  status: TripStatus
+  pickupLabel: string
+  pickupLatitude: number | null
+  pickupLongitude: number | null
+  dropoffLabel: string
+  dropoffLatitude: number | null
+  dropoffLongitude: number | null
+  requestedAt: string
+  scheduledAt: string | null
+  assignedAt: string | null
+  startedAt: string | null
+  completedAt: string | null
+  cancelledAt: string | null
+  rider?: { id: string; displayName: string; phone: string }
+  dispatches: Dispatch[]
 }
 
 export type Rider = {
@@ -101,6 +140,17 @@ export type SafetyWeights = {
   panicReady: number
   trainingComplete: number
   ratingAndHistory: number
+}
+
+export type SafetyScoreHistory = {
+  id: string
+  driverId: string
+  previousScore: number | null
+  score: number
+  eligible: boolean
+  weights: SafetyWeights
+  reason: string
+  createdAt: string
 }
 
 export type DemandInputs = {

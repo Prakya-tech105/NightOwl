@@ -58,6 +58,7 @@ model Company {
   slug          String     @unique
   pilotCorridor String
   city          String     @default("Bengaluru")
+  safetyWeights Json?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   users         User[]
@@ -65,22 +66,38 @@ model Company {
   vehicles      Vehicle[]
   trips         Trip[]
   drivers       Driver[]
+  safetyScoreHistory SafetyScoreHistory[]
 }
 
 model User {
-  id          String    @id @default(cuid())
-  phone       String    @unique
-  displayName String
-  role        UserRole
-  companyId   String
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee    Employee?
-  driver      Driver?
-  trips       Trip[]    @relation("RiderTrips")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String         @id @default(cuid())
+  phone         String         @unique
+  displayName   String
+  role          UserRole
+  companyId     String
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee      Employee?
+  driver        Driver?
+  otpChallenges OtpChallenge[]
+  trips         Trip[]         @relation("RiderTrips")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([companyId, role])
+}
+
+model OtpChallenge {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, consumedAt])
 }
 
 model Employee {
@@ -115,6 +132,9 @@ model Driver {
   status              DriverStatus            @default(OFFLINE)
   applicationStatus   DriverApplicationStatus @default(PENDING)
   simulationOnly      Boolean                 @default(false)
+  gpsActive           Boolean                 @default(false)
+  panicReady          Boolean                 @default(false)
+  trainingComplete    Boolean                 @default(false)
   identityCheckStatus String                  @default("not_started")
   policeCheckStatus   String                  @default("not_started")
   licenseCheckStatus  String                  @default("not_started")
@@ -129,6 +149,7 @@ model Driver {
   dispatches          Dispatch[]
   safetyChecks        SafetyCheck[]
   safetyRatings       SafetyRating[]
+  safetyScoreHistory SafetyScoreHistory[]
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
 
@@ -171,6 +192,7 @@ model Trip {
   dropoffLatitude  Float?
   dropoffLongitude Float?
   requestedAt      DateTime       @default(now())
+  scheduledAt      DateTime?
   assignedAt       DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
@@ -280,4 +302,21 @@ model AuditLog {
 
   @@index([entityType, entityId, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+model SafetyScoreHistory {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  driverId       String
+  driver         Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  previousScore  Int?
+  score          Int
+  eligible       Boolean
+  weights        Json
+  reason         String
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([driverId, createdAt])
 }

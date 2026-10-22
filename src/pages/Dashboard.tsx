@@ -7,6 +7,7 @@ import { RiderPassengerFlow } from '../components/rider/RiderPassengerFlow'
 import { KpiCard } from '../components/shared/KpiCard'
 import { StatusChip } from '../components/shared/StatusChip'
 import { buildKpiSnapshot, getZonePriorityRows, useNightOwlStore } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
 
 const trendData = [
   { day: 'Mon', demand: 940, served: 780 },
@@ -19,35 +20,46 @@ const trendData = [
 
 export function DashboardPage() {
   const state = useNightOwlStore()
+  const data = usePilotData()
+  const kpis = useMemo(() => buildKpiSnapshot(state, data.drivers, data.vehicles, data.dispatches), [state, data])
+  const priorityZones = useMemo(
+    () => getZonePriorityRows(state, data.vehicles, data.dispatches).slice(0, 5),
+    [state, data.vehicles, data.dispatches],
+  )
 
   if (state.role === 'rider') {
-    const riderProfile = state.riders[0]
-
     return (
       <RiderPassengerFlow
-        riderName={riderProfile?.name ?? 'NightOwl Rider'}
-        emergencyContacts={riderProfile?.emergencyContacts ?? ['+91 9988776655']}
+        riderName={state.currentUser?.displayName ?? 'NightOwl Rider'}
+        emergencyContacts={[]}
       />
     )
   }
 
+  if (data.isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading pilot operations...</p>
+  }
+  if (data.error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{data.error.message}</p>
+  }
+
   if (state.role === 'fleet_operator') {
-    const pendingRequests = state.dispatches.filter((dispatch) => dispatch.status === 'assigned').length
-    const activeTrips = state.dispatches.filter((dispatch) => ['en_route', 'arrived', 'trip_started'].includes(dispatch.status)).length
-    const delayedTrips = state.dispatches.filter((dispatch) => dispatch.etaMinutes >= 18 && dispatch.status !== 'completed').length
-    const availableVehicles = state.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready').length
-    const idleVehicles = state.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready' && vehicle.etaMinutes < 12).length
-    const unavailableVehicles = state.vehicles.filter((vehicle) => !vehicle.available || vehicle.readiness !== 'ready').length
-    const verifiedDrivers = state.drivers.filter((driver) => driver.safetyScore >= 75 && driver.status !== 'offline').length
+    const pendingRequests = data.dispatches.filter((dispatch) => dispatch.status === 'OFFERED').length
+    const activeTrips = data.trips.filter((trip) => ['ASSIGNED', 'ARRIVING', 'IN_TRIP'].includes(trip.status)).length
+    const delayedTrips = data.dispatches.filter((dispatch) => dispatch.etaMinutes >= 18 && dispatch.trip?.status !== 'COMPLETED').length
+    const availableVehicles = data.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready').length
+    const idleVehicles = data.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready' && vehicle.etaMinutes < 12).length
+    const unavailableVehicles = data.vehicles.filter((vehicle) => !vehicle.available || vehicle.readiness !== 'ready').length
+    const verifiedDrivers = data.drivers.filter((driver) => driver.safetyScore >= 75 && driver.status !== 'offline').length
     const utilizationPct = Math.round(
-      (state.vehicles.filter((vehicle) => !vehicle.available).length / Math.max(state.vehicles.length, 1)) * 100,
+      (data.vehicles.filter((vehicle) => !vehicle.available).length / Math.max(data.vehicles.length, 1)) * 100,
     )
 
     const blockerRows = [
       {
         id: 'verification',
-        label: `${state.drivers.filter((driver) => driver.safetyScore < 75 || driver.status === 'offline').length} driver verification blockers`,
-        severity: state.drivers.some((driver) => driver.safetyScore < 75 || driver.status === 'offline') ? 'danger' : 'success',
+        label: `${data.drivers.filter((driver) => driver.safetyScore < 75 || driver.status === 'offline').length} driver verification blockers`,
+        severity: data.drivers.some((driver) => driver.safetyScore < 75 || driver.status === 'offline') ? 'danger' : 'success',
       },
       {
         id: 'pending',
@@ -65,7 +77,7 @@ export function DashboardPage() {
       .map((record) => {
         const geo = state.geographies.find((item) => item.id === record.geographyId)
         const zoneName = geo?.ward ?? geo?.district ?? 'Unknown'
-        const available = state.vehicles.filter((vehicle) => vehicle.zone === zoneName && vehicle.available && vehicle.readiness === 'ready').length
+        const available = data.vehicles.filter((vehicle) => vehicle.zone === zoneName && vehicle.available && vehicle.readiness === 'ready').length
         return {
           id: record.geographyId,
           zoneName,
@@ -78,21 +90,18 @@ export function DashboardPage() {
       .filter((zone) => zone.shortage > 0)
       .sort((a, b) => b.shortage - a.shortage)
 
-    const pendingDispatches = state.dispatches
-      .filter((dispatch) => dispatch.status === 'assigned' || dispatch.etaMinutes >= 15)
+    const pendingDispatches = data.dispatches
+      .filter((dispatch) => dispatch.status === 'OFFERED' || dispatch.etaMinutes >= 15)
       .map((dispatch) => {
-        const geo = state.geographies.find((item) => item.id === dispatch.geographyId)
-        const zoneName = geo?.ward ?? geo?.district ?? 'Unknown'
-        const vehicle = state.vehicles.find((item) => item.id === dispatch.vehicleId)
-        const driver = state.drivers.find((item) => item.id === dispatch.driverId)
+        const zoneName = dispatch.trip?.pickupLabel ?? 'Unknown pickup'
 
         return {
           id: dispatch.id,
           zoneName,
-          vehicleLabel: vehicle?.vehicleNumber ?? dispatch.vehicleId.toUpperCase(),
-          driverName: driver?.name ?? dispatch.driverId.toUpperCase(),
+          vehicleLabel: dispatch.vehicle?.vehicleNumber ?? dispatch.vehicleId.toUpperCase(),
+          driverName: dispatch.driver?.name ?? dispatch.driverId.toUpperCase(),
           etaMinutes: dispatch.etaMinutes,
-          status: dispatch.status === 'assigned' ? 'Awaiting acceptance' : 'Watch ETA',
+          status: dispatch.status === 'OFFERED' ? 'Awaiting acceptance' : 'Watch ETA',
           priority: (dispatch.etaMinutes >= 18 ? 'danger' : 'warning') as 'warning' | 'danger',
         }
       })
@@ -136,12 +145,12 @@ export function DashboardPage() {
   if (state.role === 'government_admin') {
     const totalDemand = state.demand.reduce((total, record) => total + record.estimatedRideDemand, 0)
     const totalNeeded = state.demand.reduce((total, record) => total + record.vehiclesNeeded, 0)
-    const activeVehicles = state.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready').length
+    const activeVehicles = data.vehicles.filter((vehicle) => vehicle.available && vehicle.readiness === 'ready').length
     const coveragePct = totalNeeded > 0 ? Math.round((activeVehicles / totalNeeded) * 100) : 0
     const zones = state.demand.map((record) => {
       const geo = state.geographies.find((item) => item.id === record.geographyId)
       const zone = geo?.ward ?? geo?.district ?? 'Unknown'
-      const available = state.vehicles.filter((vehicle) => vehicle.zone === zone && vehicle.available).length
+      const available = data.vehicles.filter((vehicle) => vehicle.zone === zone && vehicle.available).length
       return {
         id: record.geographyId,
         zone,
@@ -166,9 +175,6 @@ export function DashboardPage() {
       />
     )
   }
-
-  const kpis = useMemo(() => buildKpiSnapshot(state), [state])
-  const priorityZones = useMemo(() => getZonePriorityRows(state).slice(0, 5), [state])
 
   return (
     <div className="space-y-5">

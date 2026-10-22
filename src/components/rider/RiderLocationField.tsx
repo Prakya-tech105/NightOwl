@@ -19,36 +19,31 @@ type RiderLocationFieldProps = {
 export function RiderLocationField(props: RiderLocationFieldProps) {
   const Icon = props.icon
   const [isOpen, setIsOpen] = useState(false)
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
-  const [remoteOptions, setRemoteOptions] = useState<string[]>([])
+  const [loadingQuery, setLoadingQuery] = useState<string | null>(null)
+  const [remoteResult, setRemoteResult] = useState<{ query: string; options: string[] } | null>(null)
+  const query = props.value.trim()
+  const isLoadingSuggestions = Boolean(props.fetchSuggestions && query.length >= 2 && loadingQuery === query)
 
   useEffect(() => {
     let cancelled = false
+    const fetchSuggestions = props.fetchSuggestions
+    const currentQuery = props.value.trim()
 
-    if (!props.fetchSuggestions || props.value.trim().length < 2) {
-      setRemoteOptions([])
-      setIsLoadingSuggestions(false)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    setIsLoadingSuggestions(true)
+    if (!fetchSuggestions || currentQuery.length < 2) return
 
     const timer = setTimeout(() => {
-      props
-        .fetchSuggestions?.(props.value)
+      fetchSuggestions(currentQuery)
         .then((suggestions) => {
           if (cancelled) return
-          setRemoteOptions(suggestions)
+          setRemoteResult({ query: currentQuery, options: suggestions })
         })
         .catch(() => {
           if (cancelled) return
-          setRemoteOptions([])
+          setRemoteResult({ query: currentQuery, options: [] })
         })
         .finally(() => {
           if (!cancelled) {
-            setIsLoadingSuggestions(false)
+            setLoadingQuery((current) => current === currentQuery ? null : current)
           }
         })
     }, 260)
@@ -61,13 +56,14 @@ export function RiderLocationField(props: RiderLocationFieldProps) {
 
   const filteredOptions = useMemo(() => {
     const needle = props.value.trim().toLowerCase()
+    const remoteOptions = remoteResult?.query === query ? remoteResult.options : []
     const local = !needle
       ? props.options.slice(0, 8)
       : props.options.filter((option) => option.toLowerCase().includes(needle)).slice(0, 8)
 
     if (!remoteOptions.length) return local
     return Array.from(new Set([...remoteOptions, ...local])).slice(0, 10)
-  }, [props.options, props.value, remoteOptions])
+  }, [props.options, props.value, query, remoteResult])
 
   return (
     <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -85,7 +81,10 @@ export function RiderLocationField(props: RiderLocationFieldProps) {
             setTimeout(() => setIsOpen(false), 120)
           }}
           onChange={(event) => {
-            props.onChange(event.target.value)
+            const value = event.target.value
+            const nextQuery = value.trim()
+            setLoadingQuery(props.fetchSuggestions && nextQuery.length >= 2 ? nextQuery : null)
+            props.onChange(value)
             setIsOpen(true)
           }}
           className="h-16 w-full rounded-2xl border border-indigo-900/70 bg-[#020826] pl-12 pr-12 text-lg font-medium text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-violet-500"

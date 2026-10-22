@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { StatusChip } from '../components/shared/StatusChip'
-import { describeSafetyBadge, useNightOwlStore } from '../store/useNightOwlStore'
+import { describeSafetyBadge } from '../store/useNightOwlStore'
+import { usePilotData } from '../hooks/usePilotData'
 
 export function FleetPage() {
-  const { drivers, vehicles } = useNightOwlStore()
+  const { drivers, vehicles, isLoading, error } = usePilotData()
   const [zoneFilter, setZoneFilter] = useState('all')
 
   const zones = useMemo(() => Array.from(new Set(vehicles.map((vehicle) => vehicle.zone))), [vehicles])
@@ -17,6 +18,13 @@ export function FleetPage() {
   const utilization = Math.round(
     (filteredVehicles.filter((vehicle) => !vehicle.available).length / Math.max(filteredVehicles.length, 1)) * 100,
   )
+
+  if (isLoading) {
+    return <p className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-sm text-slate-300">Loading fleet...</p>
+  }
+  if (error) {
+    return <p role="alert" className="rounded-xl border border-rose-700/60 bg-rose-950/30 p-4 text-sm text-rose-200">{error.message}</p>
+  }
 
   return (
     <div className="space-y-4">

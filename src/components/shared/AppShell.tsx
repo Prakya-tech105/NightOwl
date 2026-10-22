@@ -1,4 +1,4 @@
-import { Bell, Compass, LayoutDashboard, LogOut, Settings, Shield, Truck } from 'lucide-react'
+import { Bell, Compass, LayoutDashboard, LogOut, Navigation, Settings, Shield, Truck } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useNightOwlStore } from '../../store/useNightOwlStore'
 
@@ -6,6 +6,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/demand-map', label: 'Demand Map', icon: Compass },
   { to: '/dispatch', label: 'Dispatch', icon: Truck },
+  { to: '/driver', label: 'Driver App', icon: Navigation },
   { to: '/riders', label: 'Riders', icon: Shield },
   { to: '/reports', label: 'Reports', icon: Bell },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -24,9 +25,11 @@ export function AppShell() {
   const logout = useNightOwlStore((state) => state.logout)
   const visibleNavItems = navItems.filter((item) => {
     if (!role) return true
+    if (item.to === '/driver') return role === 'driver'
     if (role === 'rider') return item.to !== '/reports' && item.to !== '/demand-map'
+    if (role === 'driver') return ['/driver', '/dispatch'].includes(item.to)
     if (role === 'fleet_operator') return ['/dashboard', '/dispatch'].includes(item.to)
-    if (role === 'company_admin') return ['/dashboard', '/reports'].includes(item.to)
+    if (role === 'company_admin') return ['/dashboard', '/reports', '/settings'].includes(item.to)
     if (role === 'government_admin') return ['/dashboard', '/demand-map'].includes(item.to)
     return true
   })
